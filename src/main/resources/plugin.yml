@@ -1,0 +1,6 @@
+name: PracticeMaster
+version: '1.0'
+main: net.guythatlives.practiceMaster.PracticeMaster
+api-version: '1.21'
+authors: [ GuyThatLives ]
+description: The official PracticeMaster plugin made by GuyThatLives
