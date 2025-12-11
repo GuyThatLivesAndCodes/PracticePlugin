@@ -1,6 +1,27 @@
 name: PracticeMaster
-version: '1.0'
+version: 1.0.0
 main: net.guythatlives.practiceMaster.PracticeMaster
-api-version: '1.21'
-authors: [ GuyThatLives ]
-description: The official PracticeMaster plugin made by GuyThatLives
+api-version: 1.21
+author: YourName
+description: A comprehensive practice plugin for Minecraft servers
+softdepend: [WorldEdit, FastAsyncWorldEdit]
+
+commands:
+  practice:
+    description: Main practice command
+    usage: /practice <play|leave|arena|timer>
+    aliases: [pm, prac]
+
+permissions:
+  practicemaster.use:
+    description: Allows using the practice command
+    default: true
+  practicemaster.arena:
+    description: Allows managing arenas
+    default: op
+  practicemaster.admin:
+    description: Full access to all features
+    default: op
+    children:
+      practicemaster.use: true
+      practicemaster.arena: true
