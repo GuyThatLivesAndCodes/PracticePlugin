@@ -371,6 +371,38 @@ public class PracticeCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
+    private boolean handleArenaHardSave(CommandSender sender, String[] args) {
+        if (args.length < 3) {
+            sender.sendMessage("§cUsage: /practice arena hardsave <n>");
+            return true;
+        }
+
+        String name = args[2].toLowerCase();
+        Arena arena = plugin.getArenaManager().getArena(name);
+
+        if (arena == null) {
+            sender.sendMessage("§cArena '§e" + name + "§c' does not exist!");
+            return true;
+        }
+
+        if (arena.getCorner1() == null || arena.getCorner2() == null || arena.getBaseLocation() == null) {
+            sender.sendMessage("§cPlease set corners and base location first!");
+            return true;
+        }
+
+        sender.sendMessage("§eForce saving arena structure to YAML...");
+        Arena.SaveResult result = arena.saveArenaStructure(true); // Force YAML save
+        plugin.getArenaManager().saveArenas();
+
+        if (result.success) {
+            sender.sendMessage("§aArena structure saved to YAML! §7(" + result.blockCount + " blocks)");
+            sender.sendMessage("§7Dimensions: §e" + result.dimensions);
+        } else {
+            sender.sendMessage("§cFailed to save arena: " + result.method);
+        }
+        return true;
+    }
+
     private boolean handleArenaAddPlayLocation(CommandSender sender, String[] args) {
         if (!(sender instanceof Player)) {
             sender.sendMessage("§cOnly players can use this command!");
@@ -391,7 +423,9 @@ public class PracticeCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        if (arena.getSavedBlocks().isEmpty()) {
+        // Check if arena has saved structure (either schematic or legacy blocks)
+        boolean hasStructure = plugin.getSchematicManager().schematicExists(arena.getName()) || !arena.getSavedBlocks().isEmpty();
+        if (!hasStructure) {
             player.sendMessage("§cPlease save the arena structure first!");
             player.sendMessage("§7Use: §e/practice arena save " + name);
             return true;
@@ -447,7 +481,9 @@ public class PracticeCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        if (arena.getSavedBlocks().isEmpty()) {
+        // Check if arena has saved structure (either schematic or legacy blocks)
+        boolean hasStructure = plugin.getSchematicManager().schematicExists(arena.getName()) || !arena.getSavedBlocks().isEmpty();
+        if (!hasStructure) {
             sender.sendMessage("§cNo saved structure for this arena!");
             return true;
         }

@@ -47,7 +47,14 @@ public class InventoryManager {
         }
 
         if (arena.getKitArmor() != null && arena.getKitArmor().length > 0) {
-            player.getInventory().setArmorContents(arena.getKitArmor());
+            // Clone armor items to avoid shared references between players
+            ItemStack[] armorClone = new ItemStack[arena.getKitArmor().length];
+            for (int i = 0; i < arena.getKitArmor().length; i++) {
+                if (arena.getKitArmor()[i] != null) {
+                    armorClone[i] = arena.getKitArmor()[i].clone();
+                }
+            }
+            player.getInventory().setArmorContents(armorClone);
         }
     }
 
