@@ -1,0 +1,98 @@
+# PracticeMaster Configuration
+# Customize arena events and timing here!
+
+# Event timing configuration
+event_timing:
+  min_delay_seconds: 2  # Minimum time between events
+  max_delay_seconds: 3  # Maximum time between events
+
+# Arena Event Configurations
+# Each event can be fully customized here
+events:
+  # Shooter Bridging - Randomly flings players
+  shooting:
+    type: velocity  # Event type: velocity, jump, gravity, teleport, speed
+    velocity:
+      x:
+        min: -0.18
+        max: 0.18
+      y:
+        min: 0.41
+        max: 0.52
+      z:
+        min: -0.18
+        max: 0.18
+      multiplier: 0.63  # Overall velocity multiplier
+    message: "§6§lSHOT! §7You've been shot off!"
+    sound: "ENTITY_ARROW_HIT"  # Minecraft sound (without minecraft: prefix)
+    sound_volume: 1.0
+    sound_pitch: 1.0
+
+  shooting_easy:
+    type: velocity
+    velocity:
+      x:
+        min: -0.06
+        max: 0.06
+      y:
+        min: 0.11
+        max: 0.13
+      z:
+        min: -0.06
+        max: 0.06
+      multiplier: 0.56
+    message: "§6§lSHOT! §7You've been shot off!"
+    sound: "ENTITY_ARROW_HIT"
+    sound_volume: 0.8
+    sound_pitch: 1.2
+
+  # Random Jump - Gives random jump boosts
+  random_jump:
+    type: jump
+    jump:
+      min: 0.8  # Minimum jump height
+      max: 1.3  # Maximum jump height
+      preserve_horizontal: true  # Keep horizontal movement
+    message: "§6§lBOOST! §7You got a random jump boost!"
+    sound: "ENTITY_EXPERIENCE_ORB_PICKUP"
+
+  # Gravity Shift - Changes physics randomly
+  gravity_shift:
+    type: gravity
+    multipliers:
+      increase: 1.3  # Velocity increase multiplier
+      decrease: 0.7  # Velocity decrease multiplier
+    chance:
+      increase: 0.5  # 50% chance to increase (0.0 - 1.0)
+    message: "§d§lGRAVITY SHIFT! §7Physics are acting strange..."
+    sound: "BLOCK_PORTAL_AMBIENT"
+    sound_volume: 0.5
+
+  # Random Teleport - Teleports players randomly
+  random_teleport:
+    type: teleport
+    radius: 5.0  # Max distance from current position
+    y_offset:
+      min: -2.0  # Minimum Y offset
+      max: 2.0   # Maximum Y offset
+    message: "§5§lTELEPORT! §7You've been randomly teleported!"
+    sound: "ENTITY_ENDERMAN_TELEPORT"
+
+  # Speed Boost - Launches player forward
+  speed_boost:
+    type: speed
+    forward_multiplier: 2.0  # How fast to launch forward
+    upward_boost: 0.3        # Upward boost amount
+    message: "§a§lSPEED! §7You got a speed boost!"
+    sound: "ENTITY_FIREWORK_ROCKET_LAUNCH"
+
+# Additional settings
+settings:
+  # Whether to show detailed setup messages
+  verbose_setup: true
+
+  # Whether to auto-save arenas after changes
+  auto_save: true
+
+  # Default timer duration (if not set per-arena)
+  default_timer_seconds: 60
