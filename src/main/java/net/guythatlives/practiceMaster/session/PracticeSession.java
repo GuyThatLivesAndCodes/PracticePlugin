@@ -7,6 +7,7 @@ import net.guythatlives.practiceMaster.stats.PlayerStats;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.attribute.Attribute;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -27,6 +28,11 @@ public class PracticeSession {
     private BukkitTask eventTask;
     private final Random random;
 
+    // Saved player state
+    private final double previousHealth;
+    private final int previousFoodLevel;
+    private final float previousSaturation;
+
     // Stats tracking
     private final PlayerStats.SessionMetrics metrics;
     private Location lastBlockPlacement;
@@ -44,6 +50,11 @@ public class PracticeSession {
         this.startTimeMs = System.currentTimeMillis();
         this.timeElapsedSeconds = 0;
         this.random = new Random();
+
+        // Save player state before practice
+        this.previousHealth = player.getHealth();
+        this.previousFoodLevel = player.getFoodLevel();
+        this.previousSaturation = player.getSaturation();
 
         // Initialize metrics tracking
         this.metrics = new PlayerStats.SessionMetrics();
@@ -74,6 +85,16 @@ public class PracticeSession {
 
         // Set gamemode
         player.setGameMode(GameMode.SURVIVAL);
+
+        // Set full health and food for practice
+        double maxHealth = player.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue();
+        player.setHealth(maxHealth);
+        player.setFoodLevel(20);
+        player.setSaturation(20.0f);
+
+        // Clear any negative effects
+        player.setFireTicks(0);
+        player.getActivePotionEffects().forEach(effect -> player.removePotionEffect(effect.getType()));
 
         // Give arena kit
         PracticeMaster.getInstance().getInventoryManager().giveArenaKit(player, arena);
@@ -318,9 +339,21 @@ public class PracticeSession {
             // Save stats
             PracticeMaster.getInstance().getStatsManager().saveStats(stats);
 
-            // Restore player
+            // Restore player state
             player.teleport(previousLocation);
             player.setGameMode(previousGameMode);
+
+            // Restore health and food (ensure health is valid)
+            double maxHealth = player.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue();
+            player.setHealth(Math.min(previousHealth, maxHealth));
+            player.setFoodLevel(previousFoodLevel);
+            player.setSaturation(previousSaturation);
+
+            // Clear any effects from the practice session
+            player.setFireTicks(0);
+            player.getActivePotionEffects().forEach(effect -> player.removePotionEffect(effect.getType()));
+
+            // Restore inventory
             PracticeMaster.getInstance().getInventoryManager().restoreInventory(player);
         }
 
