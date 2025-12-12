@@ -125,18 +125,48 @@ public class Arena implements ConfigurationSerializable {
      * Loads the arena at a specific location
      */
     public void loadArenaAt(Location playLocation) {
-        PracticeMaster.getInstance()
-                .getSchematicManager()
-                .loadArenaAt(name, playLocation, activeSaveVersion);
+        loadArenaAt(playLocation, activeSaveVersion);
     }
 
     /**
      * Loads a specific version of the arena at a location
      */
     public void loadArenaAt(Location playLocation, int version) {
-        PracticeMaster.getInstance()
-                .getSchematicManager()
-                .loadArenaAt(name, playLocation, version);
+        SchematicManager sm = PracticeMaster.getInstance().getSchematicManager();
+
+        // Get the save version to check its type
+        SchematicManager.SaveVersion sv = null;
+        if (version <= 0) {
+            sv = sm.getActiveSaveVersion(name);
+        } else {
+            for (SchematicManager.SaveVersion v : sm.getSaveVersions(name)) {
+                if (v.index == version) {
+                    sv = v;
+                    break;
+                }
+            }
+        }
+
+        Location pasteLocation = playLocation.clone();
+
+        // For schematics, calculate offset from min corner to base location
+        // Schematics are saved from min corner, but we want base to end up at playLocation
+        if (sv != null && sv.type.equals("Schematic") && corner1 != null && corner2 != null && baseLocation != null) {
+            int minX = Math.min(corner1.getBlockX(), corner2.getBlockX());
+            int minY = Math.min(corner1.getBlockY(), corner2.getBlockY());
+            int minZ = Math.min(corner1.getBlockZ(), corner2.getBlockZ());
+
+            // Offset from min corner to base
+            int offsetX = baseLocation.getBlockX() - minX;
+            int offsetY = baseLocation.getBlockY() - minY;
+            int offsetZ = baseLocation.getBlockZ() - minZ;
+
+            // Subtract offset so base ends up at playLocation
+            pasteLocation.subtract(offsetX, offsetY, offsetZ);
+        }
+        // For YAML saves, no adjustment needed - coordinates are already relative to base
+
+        sm.loadArenaAt(name, pasteLocation, version);
     }
 
     /**
