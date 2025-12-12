@@ -1,5 +1,7 @@
 package net.guythatlives.practiceMaster.arena;
 
+import net.guythatlives.practiceMaster.PracticeMaster;
+import net.guythatlives.practiceMaster.managers.SchematicManager;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -18,10 +20,9 @@ public class Arena implements ConfigurationSerializable {
     private Location spawnLocation;
     private Location baseLocation;
     private List<Location> playLocations;
-    private boolean usesSchematic; // Whether this arena uses schematic or legacy block storage
-    private List<ArenaBlock> savedBlocks; // Legacy block storage (fallback)
+    private int activeSaveVersion; // Which save version is currently active
     private ArenaEvent arenaEvent;
-    private String customEventName; // For custom events from config
+    private String customEventName;
     private int defaultTimerSeconds;
     private boolean timerEnabled;
     private List<ItemStack> kitItems;
@@ -30,8 +31,7 @@ public class Arena implements ConfigurationSerializable {
     public Arena(String name) {
         this.name = name;
         this.playLocations = new ArrayList<>();
-        this.usesSchematic = false;
-        this.savedBlocks = new ArrayList<>();
+        this.activeSaveVersion = 0; // 0 means use latest
         this.arenaEvent = ArenaEvent.NONE;
         this.defaultTimerSeconds = 60;
         this.timerEnabled = false;
@@ -54,14 +54,7 @@ public class Arena implements ConfigurationSerializable {
         this.spawnLocation = (Location) map.get("spawnLocation");
         this.baseLocation = (Location) map.get("baseLocation");
         this.playLocations = (List<Location>) map.getOrDefault("playLocations", new ArrayList<>());
-        this.usesSchematic = (Boolean) map.getOrDefault("usesSchematic", false);
-
-        // Load saved blocks (legacy fallback)
-        List<Map<String, Object>> blockMaps = (List<Map<String, Object>>) map.getOrDefault("savedBlocks", new ArrayList<>());
-        this.savedBlocks = new ArrayList<>();
-        for (Map<String, Object> blockMap : blockMaps) {
-            this.savedBlocks.add(new ArenaBlock(blockMap));
-        }
+        this.activeSaveVersion = (Integer) map.getOrDefault("activeSaveVersion", 0);
 
         this.arenaEvent = ArenaEvent.valueOf((String) map.getOrDefault("arenaEvent", "NONE"));
         this.customEventName = (String) map.get("customEventName");
@@ -98,17 +91,7 @@ public class Arena implements ConfigurationSerializable {
         map.put("spawnLocation", spawnLocation);
         map.put("baseLocation", baseLocation);
         map.put("playLocations", playLocations);
-        map.put("usesSchematic", usesSchematic);
-
-        // Only save blocks if not using schematic
-        if (!usesSchematic) {
-            List<Map<String, Object>> blockMaps = new ArrayList<>();
-            for (ArenaBlock block : savedBlocks) {
-                blockMaps.add(block.serialize());
-            }
-            map.put("savedBlocks", blockMaps);
-        }
-
+        map.put("activeSaveVersion", activeSaveVersion);
         map.put("arenaEvent", arenaEvent.name());
         map.put("customEventName", customEventName);
         map.put("defaultTimerSeconds", defaultTimerSeconds);
@@ -118,97 +101,93 @@ public class Arena implements ConfigurationSerializable {
         return map;
     }
 
-    public SaveResult saveArenaStructure(boolean forceYAML) {
+    /**
+     * Saves the arena structure with versioning - tries WorldEdit first, falls back to YAML
+     */
+    public SchematicManager.SaveResult saveArenaStructure(boolean forceYAML) {
         if (corner1 == null || corner2 == null || baseLocation == null) {
-            return new SaveResult(false, "Missing corners or base location", 0, null);
+            return new SchematicManager.SaveResult(false, "Missing corners or base location", 0, null, null, false);
         }
 
-        // Try to use schematic system first (unless forced to YAML)
-        if (!forceYAML && net.guythatlives.practiceMaster.PracticeMaster.getInstance().getSchematicManager().isWorldEditAvailable()) {
-            net.guythatlives.practiceMaster.managers.SchematicManager.SaveResult result =
-                    net.guythatlives.practiceMaster.PracticeMaster.getInstance()
-                            .getSchematicManager()
-                            .saveSchematic(name, corner1, corner2);
+        SchematicManager.SaveResult result = PracticeMaster.getInstance()
+                .getSchematicManager()
+                .saveArenaStructure(name, corner1, corner2, baseLocation, forceYAML);
 
-            if (result.success) {
-                this.usesSchematic = true;
-                this.savedBlocks.clear();
-                return new SaveResult(true, "Schematic", result.blockCount, result.filePath, result.dimensions);
-            }
+        if (result.success && result.verified) {
+            // Update active version to the new save
+            this.activeSaveVersion = result.saveIndex;
         }
 
-        // Fallback to legacy block-by-block saving (or forced)
-        this.usesSchematic = false;
-        savedBlocks.clear();
-
-        int minX = Math.min(corner1.getBlockX(), corner2.getBlockX());
-        int maxX = Math.max(corner1.getBlockX(), corner2.getBlockX());
-        int minY = Math.min(corner1.getBlockY(), corner2.getBlockY());
-        int maxY = Math.max(corner1.getBlockY(), corner2.getBlockY());
-        int minZ = Math.min(corner1.getBlockZ(), corner2.getBlockZ());
-        int maxZ = Math.max(corner1.getBlockZ(), corner2.getBlockZ());
-
-        int blockCount = 0;
-        for (int x = minX; x <= maxX; x++) {
-            for (int y = minY; y <= maxY; y++) {
-                for (int z = minZ; z <= maxZ; z++) {
-                    Location loc = new Location(corner1.getWorld(), x, y, z);
-                    Block block = loc.getBlock();
-
-                    int relX = x - baseLocation.getBlockX();
-                    int relY = y - baseLocation.getBlockY();
-                    int relZ = z - baseLocation.getBlockZ();
-
-                    savedBlocks.add(new ArenaBlock(relX, relY, relZ, block.getType(), block.getBlockData()));
-                    blockCount++;
-                }
-            }
-        }
-
-        String dimensions = (maxX - minX + 1) + "x" + (maxY - minY + 1) + "x" + (maxZ - minZ + 1);
-        String yamlPath = net.guythatlives.practiceMaster.PracticeMaster.getInstance()
-                .getDataFolder().getAbsolutePath() + "/arenas.yml";
-
-        return new SaveResult(true, forceYAML ? "YAML (Forced)" : "YAML (Fallback)", blockCount, yamlPath, dimensions);
+        return result;
     }
 
+    /**
+     * Loads the arena at a specific location
+     */
     public void loadArenaAt(Location playLocation) {
-        // Use schematic if available
-        if (usesSchematic) {
-            net.guythatlives.practiceMaster.PracticeMaster.getInstance()
-                    .getSchematicManager()
-                    .loadSchematic(name, playLocation);
-            return;
-        }
-
-        // Fallback to legacy block loading
-        if (savedBlocks.isEmpty()) {
-            return;
-        }
-
-        for (ArenaBlock arenaBlock : savedBlocks) {
-            Location targetLoc = playLocation.clone().add(
-                    arenaBlock.getRelX(),
-                    arenaBlock.getRelY(),
-                    arenaBlock.getRelZ()
-            );
-            Block block = targetLoc.getBlock();
-            block.setType(arenaBlock.getMaterial());
-
-            if (arenaBlock.getBlockData() != null) {
-                try {
-                    block.setBlockData(arenaBlock.getBlockData());
-                } catch (Exception e) {
-                    // Silently ignore
-                }
-            }
-        }
+        PracticeMaster.getInstance()
+                .getSchematicManager()
+                .loadArenaAt(name, playLocation, activeSaveVersion);
     }
 
+    /**
+     * Loads a specific version of the arena at a location
+     */
+    public void loadArenaAt(Location playLocation, int version) {
+        PracticeMaster.getInstance()
+                .getSchematicManager()
+                .loadArenaAt(name, playLocation, version);
+    }
+
+    /**
+     * Loads the arena at all play locations
+     */
     public void loadArenaAtAllLocations() {
         for (Location playLoc : playLocations) {
             loadArenaAt(playLoc);
         }
+    }
+
+    /**
+     * Gets all available save versions for this arena
+     */
+    public List<SchematicManager.SaveVersion> getSaveVersions() {
+        return PracticeMaster.getInstance()
+                .getSchematicManager()
+                .getSaveVersions(name);
+    }
+
+    /**
+     * Sets the active save version to use when loading
+     */
+    public void setActiveSaveVersion(int version) {
+        this.activeSaveVersion = version;
+    }
+
+    /**
+     * Gets the current active save version
+     */
+    public int getActiveSaveVersion() {
+        return activeSaveVersion;
+    }
+
+    /**
+     * Checks if the arena has any saved structure
+     */
+    public boolean hasSavedStructure() {
+        return PracticeMaster.getInstance()
+                .getSchematicManager()
+                .schematicExists(name);
+    }
+
+    /**
+     * Legacy method for backward compatibility - returns empty list
+     * Use hasSavedStructure() instead
+     */
+    @Deprecated
+    public List<Object> getSavedBlocks() {
+        // For backward compatibility, return empty list if structure exists in new format
+        return hasSavedStructure() ? Collections.emptyList() : Collections.emptyList();
     }
 
     public Location getSpawnForPlayLocation(Location playLocation) {
@@ -285,12 +264,8 @@ public class Arena implements ConfigurationSerializable {
     }
 
     public boolean isComplete() {
-        boolean hasStructure = usesSchematic ?
-                net.guythatlives.practiceMaster.PracticeMaster.getInstance().getSchematicManager().schematicExists(name) :
-                !savedBlocks.isEmpty();
-
         return corner1 != null && corner2 != null && spawnLocation != null &&
-                baseLocation != null && hasStructure;
+                baseLocation != null && hasSavedStructure();
     }
 
     // Getters and Setters
@@ -304,7 +279,6 @@ public class Arena implements ConfigurationSerializable {
     public Location getBaseLocation() { return baseLocation; }
     public void setBaseLocation(Location baseLocation) { this.baseLocation = baseLocation; }
     public List<Location> getPlayLocations() { return playLocations; }
-    public List<ArenaBlock> getSavedBlocks() { return savedBlocks; }
     public ArenaEvent getArenaEvent() { return arenaEvent; }
     public void setArenaEvent(ArenaEvent arenaEvent) { this.arenaEvent = arenaEvent; }
     public String getCustomEventName() { return customEventName; }
@@ -317,77 +291,4 @@ public class Arena implements ConfigurationSerializable {
     public void setKitItems(List<ItemStack> kitItems) { this.kitItems = kitItems; }
     public ItemStack[] getKitArmor() { return kitArmor; }
     public void setKitArmor(ItemStack[] kitArmor) { this.kitArmor = kitArmor; }
-
-    /**
-     * Result class for save operations
-     */
-    public static class SaveResult {
-        public final boolean success;
-        public final String method;
-        public final int blockCount;
-        public final String filePath;
-        public final String dimensions;
-
-        public SaveResult(boolean success, String method, int blockCount, String filePath) {
-            this.success = success;
-            this.method = method;
-            this.blockCount = blockCount;
-            this.filePath = filePath;
-            this.dimensions = null;
-        }
-
-        public SaveResult(boolean success, String method, int blockCount, String filePath, String dimensions) {
-            this.success = success;
-            this.method = method;
-            this.blockCount = blockCount;
-            this.filePath = filePath;
-            this.dimensions = dimensions;
-        }
-    }
-
-    public static class ArenaBlock implements ConfigurationSerializable {
-        private final int relX, relY, relZ;
-        private final Material material;
-        private final String blockDataString;
-
-        public ArenaBlock(int relX, int relY, int relZ, Material material, BlockData blockData) {
-            this.relX = relX;
-            this.relY = relY;
-            this.relZ = relZ;
-            this.material = material;
-            this.blockDataString = blockData.getAsString();
-        }
-
-        @SuppressWarnings("unchecked")
-        public ArenaBlock(Map<String, Object> map) {
-            this.relX = (Integer) map.get("relX");
-            this.relY = (Integer) map.get("relY");
-            this.relZ = (Integer) map.get("relZ");
-            this.material = Material.valueOf((String) map.get("material"));
-            this.blockDataString = (String) map.getOrDefault("blockData", "");
-        }
-
-        @Override
-        public Map<String, Object> serialize() {
-            Map<String, Object> map = new HashMap<>();
-            map.put("relX", relX);
-            map.put("relY", relY);
-            map.put("relZ", relZ);
-            map.put("material", material.name());
-            map.put("blockData", blockDataString);
-            return map;
-        }
-
-        public int getRelX() { return relX; }
-        public int getRelY() { return relY; }
-        public int getRelZ() { return relZ; }
-        public Material getMaterial() { return material; }
-        public BlockData getBlockData() {
-            try {
-                return Bukkit.createBlockData(blockDataString);
-            } catch (Exception e) {
-                return material.createBlockData();
-            }
-        }
-    }
 }

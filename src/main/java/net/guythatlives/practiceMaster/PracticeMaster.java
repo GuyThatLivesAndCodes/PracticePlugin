@@ -6,6 +6,7 @@ import net.guythatlives.practiceMaster.managers.ArenaManager;
 import net.guythatlives.practiceMaster.managers.SessionManager;
 import net.guythatlives.practiceMaster.managers.InventoryManager;
 import net.guythatlives.practiceMaster.managers.SchematicManager;
+import net.guythatlives.practiceMaster.stats.StatsManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class PracticeMaster extends JavaPlugin {
@@ -15,6 +16,7 @@ public class PracticeMaster extends JavaPlugin {
     private SessionManager sessionManager;
     private InventoryManager inventoryManager;
     private SchematicManager schematicManager;
+    private StatsManager statsManager;
 
     @Override
     public void onEnable() {
@@ -33,10 +35,12 @@ public class PracticeMaster extends JavaPlugin {
         arenaManager = new ArenaManager(this);
         sessionManager = new SessionManager(this);
         inventoryManager = new InventoryManager(this);
+        statsManager = new StatsManager(this);
 
         // Register commands
-        getCommand("practice").setExecutor(new PracticeCommand(this));
-        getCommand("practice").setTabCompleter(new PracticeCommand(this));
+        PracticeCommand cmd = new PracticeCommand(this);
+        getCommand("practice").setExecutor(cmd);
+        getCommand("practice").setTabCompleter(cmd);
 
         // Register listeners
         getServer().getPluginManager().registerEvents(new PlayerListener(this), this);
@@ -46,6 +50,12 @@ public class PracticeMaster extends JavaPlugin {
 
         getLogger().info("PracticeMaster has been enabled!");
         getLogger().info("Loaded " + arenaManager.getArenas().size() + " arena(s)");
+
+        if (schematicManager.isWorldEditAvailable()) {
+            getLogger().info("WorldEdit integration: ENABLED");
+        } else {
+            getLogger().warning("WorldEdit integration: DISABLED (using YAML fallback)");
+        }
     }
 
     @Override
@@ -53,6 +63,11 @@ public class PracticeMaster extends JavaPlugin {
         // Save all arenas
         if (arenaManager != null) {
             arenaManager.saveArenas();
+        }
+
+        // Save all player stats
+        if (statsManager != null) {
+            statsManager.saveAllStats();
         }
 
         // End all sessions
@@ -81,5 +96,9 @@ public class PracticeMaster extends JavaPlugin {
 
     public SchematicManager getSchematicManager() {
         return schematicManager;
+    }
+
+    public StatsManager getStatsManager() {
+        return statsManager;
     }
 }

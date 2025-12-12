@@ -3,6 +3,9 @@ package net.guythatlives.practiceMaster.commands;
 import net.guythatlives.practiceMaster.PracticeMaster;
 import net.guythatlives.practiceMaster.arena.Arena;
 import net.guythatlives.practiceMaster.arena.ArenaEvent;
+import net.guythatlives.practiceMaster.managers.SchematicManager;
+import net.guythatlives.practiceMaster.stats.PlayerStats;
+import net.guythatlives.practiceMaster.stats.StatsManager;
 import org.bukkit.Location;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -42,6 +45,12 @@ public class PracticeCommand implements CommandExecutor, TabCompleter {
                 return handleArena(sender, args);
             case "timer":
                 return handleTimer(sender, args);
+            case "stats":
+                return handleStats(sender, args);
+            case "leaderboard":
+            case "lb":
+            case "top":
+                return handleLeaderboard(sender, args);
             case "reload":
                 return handleReload(sender);
             default:
@@ -103,7 +112,7 @@ public class PracticeCommand implements CommandExecutor, TabCompleter {
         if (arena.getCorner2() == null) missing.add("corner2");
         if (arena.getSpawnLocation() == null) missing.add("spawn");
         if (arena.getBaseLocation() == null) missing.add("base location");
-        if (arena.getSavedBlocks().isEmpty()) missing.add("saved structure");
+        if (!arena.hasSavedStructure()) missing.add("saved structure");
         return String.join(", ", missing);
     }
 
@@ -364,10 +373,19 @@ public class PracticeCommand implements CommandExecutor, TabCompleter {
         }
 
         sender.sendMessage("§eSaving arena structure...");
-        arena.saveArenaStructure(false);
+        SchematicManager.SaveResult result = arena.saveArenaStructure(false);
         plugin.getArenaManager().saveArenas();
-        sender.sendMessage("§aArena structure saved! §7(" + arena.getSavedBlocks().size() + " blocks)");
-        sender.sendMessage("§7Now add play locations: §e/practice arena addplaylocation " + name);
+
+        if (result.success && result.verified) {
+            sender.sendMessage("§aArena structure saved! §7(Version " + result.saveIndex + ")");
+            sender.sendMessage("§7Method: §e" + result.method + " §7| Blocks: §e" + result.blockCount);
+            sender.sendMessage("§7Dimensions: §e" + result.dimensions);
+            sender.sendMessage("§7Now add play locations: §e/practice arena addplaylocation " + name);
+        } else if (result.success && !result.verified) {
+            sender.sendMessage("§cSave may have failed verification! Check console.");
+        } else {
+            sender.sendMessage("§cFailed to save arena: " + result.method);
+        }
         return true;
     }
 
@@ -391,12 +409,12 @@ public class PracticeCommand implements CommandExecutor, TabCompleter {
         }
 
         sender.sendMessage("§eForce saving arena structure to YAML...");
-        Arena.SaveResult result = arena.saveArenaStructure(true); // Force YAML save
+        SchematicManager.SaveResult result = arena.saveArenaStructure(true); // Force YAML save
         plugin.getArenaManager().saveArenas();
 
-        if (result.success) {
-            sender.sendMessage("§aArena structure saved to YAML! §7(" + result.blockCount + " blocks)");
-            sender.sendMessage("§7Dimensions: §e" + result.dimensions);
+        if (result.success && result.verified) {
+            sender.sendMessage("§aArena structure saved to YAML! §7(Version " + result.saveIndex + ")");
+            sender.sendMessage("§7Blocks: §e" + result.blockCount + " §7| Dimensions: §e" + result.dimensions);
         } else {
             sender.sendMessage("§cFailed to save arena: " + result.method);
         }
@@ -423,9 +441,7 @@ public class PracticeCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        // Check if arena has saved structure (either schematic or legacy blocks)
-        boolean hasStructure = plugin.getSchematicManager().schematicExists(arena.getName()) || !arena.getSavedBlocks().isEmpty();
-        if (!hasStructure) {
+        if (!arena.hasSavedStructure()) {
             player.sendMessage("§cPlease save the arena structure first!");
             player.sendMessage("§7Use: §e/practice arena save " + name);
             return true;
@@ -481,9 +497,7 @@ public class PracticeCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        // Check if arena has saved structure (either schematic or legacy blocks)
-        boolean hasStructure = plugin.getSchematicManager().schematicExists(arena.getName()) || !arena.getSavedBlocks().isEmpty();
-        if (!hasStructure) {
+        if (!arena.hasSavedStructure()) {
             sender.sendMessage("§cNo saved structure for this arena!");
             return true;
         }
@@ -667,18 +681,20 @@ public class PracticeCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage("§7Corner 2: " + (arena.getCorner2() != null ? "§a✓" : "§c✗"));
         sender.sendMessage("§7Spawn: " + (arena.getSpawnLocation() != null ? "§a✓" : "§c✗"));
         sender.sendMessage("§7Base Location: " + (arena.getBaseLocation() != null ? "§a✓" : "§c✗"));
-        sender.sendMessage("§7Saved Blocks: §e" + arena.getSavedBlocks().size());
         sender.sendMessage("§7Play Locations: §e" + arena.getPlayLocations().size());
         sender.sendMessage("§7Event: §e" + arena.getArenaEvent().name());
         sender.sendMessage("§7Timer: " + (arena.isTimerEnabled() ? "§aEnabled" : "§cDisabled"));
 
-        // Storage info
-        if (arena.getSavedBlocks().isEmpty() && !plugin.getSchematicManager().schematicExists(arena.getName())) {
+        // Storage/version info
+        List<SchematicManager.SaveVersion> versions = arena.getSaveVersions();
+        if (versions.isEmpty()) {
             sender.sendMessage("§7Storage: §c✗ Not saved");
-        } else if (plugin.getSchematicManager().schematicExists(arena.getName())) {
-            sender.sendMessage("§7Storage: §aSchematic file (.schem)");
         } else {
-            sender.sendMessage("§7Storage: §eLegacy (YAML - " + arena.getSavedBlocks().size() + " blocks)");
+            sender.sendMessage("§7Save Versions: §e" + versions.size() + " §7(Active: v" + arena.getActiveSaveVersion() + ")");
+            for (SchematicManager.SaveVersion v : versions) {
+                String active = (v.index == arena.getActiveSaveVersion() || (arena.getActiveSaveVersion() == 0 && v == versions.get(versions.size() - 1))) ? " §a(active)" : "";
+                sender.sendMessage("  §7- v" + v.index + " §8[" + v.type + "]" + active);
+            }
         }
 
         // Kit info
@@ -734,10 +750,121 @@ public class PracticeCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
+    private boolean handleStats(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player)) {
+            sender.sendMessage("§cOnly players can use this command!");
+            return true;
+        }
+
+        Player player = (Player) sender;
+        PlayerStats stats = plugin.getStatsManager().getStats(player);
+
+        sender.sendMessage("§e=== Your Statistics ===");
+        sender.sendMessage("§7Rank: " + stats.getEloRank() + " §7(" + String.format("%.0f", stats.getElo()) + " ELO)");
+        sender.sendMessage("§7Sessions: §e" + stats.getTotalSessions() + " §7| Completions: §a" + stats.getTotalCompletions() + " §7| Failures: §c" + stats.getTotalFailures());
+        sender.sendMessage("§7Completion Rate: §a" + String.format("%.1f%%", stats.getCompletionRate()));
+
+        if (stats.getBestTimeMs() > 0) {
+            long bestMs = stats.getBestTimeMs();
+            String bestTime = String.format("%02d:%02d.%03d", bestMs / 60000, (bestMs / 1000) % 60, bestMs % 1000);
+            sender.sendMessage("§7Best Time: §e" + bestTime);
+        }
+
+        if (stats.getAverageTimeMs() > 0) {
+            long avgMs = stats.getAverageTimeMs();
+            String avgTime = String.format("%02d:%02d.%03d", avgMs / 60000, (avgMs / 1000) % 60, avgMs % 1000);
+            sender.sendMessage("§7Average Time: §e" + avgTime);
+        }
+
+        sender.sendMessage("§7Style Points: §d" + stats.getTotalStylePoints());
+        sender.sendMessage("§7Clutch Saves: §6" + stats.getClutchSaves() + " §7| Perfect Runs: §6" + stats.getPerfectRuns());
+        sender.sendMessage("§7Blocks Placed: §b" + stats.getTotalBlocksPlaced() + " §7| Accuracy: §a" + String.format("%.1f%%", stats.getPlacementAccuracy()));
+
+        if (stats.getAverageBlocksPerSecond() > 0) {
+            sender.sendMessage("§7Speed: §e" + String.format("%.2f", stats.getAverageBlocksPerSecond()) + " §7blocks/sec (Peak: §e" + String.format("%.2f", stats.getPeakBlocksPerSecond()) + "§7)");
+        }
+
+        int rank = plugin.getStatsManager().getEloRank(player.getUniqueId());
+        if (rank > 0) {
+            sender.sendMessage("§7Leaderboard Rank: §e#" + rank);
+        }
+
+        return true;
+    }
+
+    private boolean handleLeaderboard(CommandSender sender, String[] args) {
+        String type = args.length >= 2 ? args[1].toLowerCase() : "elo";
+        int limit = 10;
+
+        sender.sendMessage("§e=== Leaderboard: " + type.toUpperCase() + " ===");
+
+        switch (type) {
+            case "elo":
+            case "rating":
+                List<PlayerStats> eloBoard = plugin.getStatsManager().getEloLeaderboard(limit);
+                for (int i = 0; i < eloBoard.size(); i++) {
+                    PlayerStats s = eloBoard.get(i);
+                    sender.sendMessage("§e#" + (i + 1) + " §7" + s.getPlayerName() + " - " + s.getEloRank() + " §7(" + String.format("%.0f", s.getElo()) + ")");
+                }
+                break;
+
+            case "style":
+            case "points":
+                List<PlayerStats> styleBoard = plugin.getStatsManager().getStylePointsLeaderboard(limit);
+                for (int i = 0; i < styleBoard.size(); i++) {
+                    PlayerStats s = styleBoard.get(i);
+                    sender.sendMessage("§e#" + (i + 1) + " §7" + s.getPlayerName() + " - §d" + s.getTotalStylePoints() + " §7style points");
+                }
+                break;
+
+            case "speed":
+                List<PlayerStats> speedBoard = plugin.getStatsManager().getSpeedLeaderboard(limit);
+                for (int i = 0; i < speedBoard.size(); i++) {
+                    PlayerStats s = speedBoard.get(i);
+                    sender.sendMessage("§e#" + (i + 1) + " §7" + s.getPlayerName() + " - §b" + String.format("%.2f", s.getAverageBlocksPerSecond()) + " §7blocks/sec");
+                }
+                break;
+
+            case "completion":
+            case "rate":
+                List<PlayerStats> rateBoard = plugin.getStatsManager().getCompletionRateLeaderboard(limit);
+                for (int i = 0; i < rateBoard.size(); i++) {
+                    PlayerStats s = rateBoard.get(i);
+                    sender.sendMessage("§e#" + (i + 1) + " §7" + s.getPlayerName() + " - §a" + String.format("%.1f%%", s.getCompletionRate()));
+                }
+                break;
+
+            default:
+                // Arena-specific leaderboard
+                String arenaName = type;
+                if (!plugin.getArenaManager().arenaExists(arenaName)) {
+                    sender.sendMessage("§7Types: §eelo§7, §estyle§7, §espeed§7, §ecompletion§7, §e<arena>");
+                    return true;
+                }
+
+                List<StatsManager.LeaderboardEntry> arenaBoard = plugin.getStatsManager().getArenaTimeLeaderboard(arenaName, limit);
+                if (arenaBoard.isEmpty()) {
+                    sender.sendMessage("§7No times recorded for this arena yet!");
+                    return true;
+                }
+
+                sender.sendMessage("§e=== Best Times: " + arenaName + " ===");
+                for (int i = 0; i < arenaBoard.size(); i++) {
+                    StatsManager.LeaderboardEntry e = arenaBoard.get(i);
+                    sender.sendMessage("§e#" + (i + 1) + " §7" + e.getPlayerName() + " - §a" + e.getFormattedTime());
+                }
+                break;
+        }
+
+        return true;
+    }
+
     private void sendHelp(CommandSender sender) {
         sender.sendMessage("§e=== PracticeMaster Commands ===");
         sender.sendMessage("§7/practice play <arena> [timer:on/off] - Start practice");
         sender.sendMessage("§7/practice leave - Leave current practice");
+        sender.sendMessage("§7/practice stats - View your statistics");
+        sender.sendMessage("§7/practice leaderboard [type] - View leaderboards");
         sender.sendMessage("§7/practice arena - Arena management commands");
         sender.sendMessage("§7/practice reload - Reload configuration");
     }
@@ -747,8 +874,12 @@ public class PracticeCommand implements CommandExecutor, TabCompleter {
         List<String> completions = new ArrayList<>();
 
         if (args.length == 1) {
-            completions.addAll(Arrays.asList("play", "leave", "arena", "timer", "reload"));
+            completions.addAll(Arrays.asList("play", "leave", "arena", "stats", "leaderboard", "lb", "top", "timer", "reload"));
         } else if (args.length == 2) {
+            if (args[0].equalsIgnoreCase("leaderboard") || args[0].equalsIgnoreCase("lb") || args[0].equalsIgnoreCase("top")) {
+                completions.addAll(Arrays.asList("elo", "style", "speed", "completion"));
+                completions.addAll(plugin.getArenaManager().getArenas().keySet());
+            } else
             if (args[0].equalsIgnoreCase("play")) {
                 completions.addAll(plugin.getArenaManager().getArenas().keySet());
             } else if (args[0].equalsIgnoreCase("arena")) {

@@ -6,7 +6,9 @@ import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
@@ -20,7 +22,7 @@ public class PlayerListener implements Listener {
         this.plugin = plugin;
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
 
@@ -30,11 +32,43 @@ public class PlayerListener implements Listener {
 
         PracticeSession session = plugin.getSessionManager().getSession(player);
 
+        // Update position tracking
+        session.updatePosition(event.getTo());
+
+        // Check for clutch save (recovering from near-fall)
+        if (event.getFrom().getY() > event.getTo().getY()) {
+            // Player is falling - tracked by updatePosition
+        } else if (event.getFrom().getY() < event.getTo().getY() &&
+                   session.checkForClutchSave(event.getFrom(), event.getTo())) {
+            // Player recovered from a fall near the boundary
+            session.recordClutchSave();
+        }
+
         // Check if player fell out of bounds
         if (!session.isPlayerInBounds()) {
             player.sendMessage("§c§lFAILED! §7You went out of bounds!");
-            plugin.getSessionManager().endSession(player);
+            session.endWithFailure();
         }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockPlace(BlockPlaceEvent event) {
+        Player player = event.getPlayer();
+
+        if (!plugin.getSessionManager().isInSession(player)) {
+            return;
+        }
+
+        PracticeSession session = plugin.getSessionManager().getSession(player);
+
+        // Track block placement
+        Block block = event.getBlock();
+
+        // For now, assume all placed blocks are useful
+        // Future: Could check if block extends bridge path
+        boolean wasUseful = true;
+
+        session.recordBlockPlacement(block.getLocation(), wasUseful);
     }
 
     @EventHandler
@@ -53,17 +87,7 @@ public class PlayerListener implements Listener {
         // Check if player stepped on a pressure plate (win condition)
         if (isPressurePlate(block.getType())) {
             PracticeSession session = plugin.getSessionManager().getSession(player);
-
-            player.sendMessage("§a§l✓ SUCCESS! §7You completed the arena!");
-
-            if (session.isTimerEnabled()) {
-                int minutes = session.getTimeElapsed() / 60;
-                int seconds = session.getTimeElapsed() % 60;
-                String timeStr = String.format("%02d:%02d", minutes, seconds);
-                player.sendMessage("§7Time: §e" + timeStr);
-            }
-
-            plugin.getSessionManager().endSession(player);
+            session.endWithSuccess();
         }
     }
 
@@ -79,7 +103,10 @@ public class PlayerListener implements Listener {
                 material == Material.DARK_OAK_PRESSURE_PLATE ||
                 material == Material.CRIMSON_PRESSURE_PLATE ||
                 material == Material.WARPED_PRESSURE_PLATE ||
-                material == Material.POLISHED_BLACKSTONE_PRESSURE_PLATE;
+                material == Material.POLISHED_BLACKSTONE_PRESSURE_PLATE ||
+                material == Material.MANGROVE_PRESSURE_PLATE ||
+                material == Material.CHERRY_PRESSURE_PLATE ||
+                material == Material.BAMBOO_PRESSURE_PLATE;
     }
 
     @EventHandler
@@ -90,8 +117,9 @@ public class PlayerListener implements Listener {
             return;
         }
 
+        PracticeSession session = plugin.getSessionManager().getSession(player);
         player.sendMessage("§c§lFAILED! §7You died!");
-        plugin.getSessionManager().endSession(player);
+        session.endWithFailure();
     }
 
     @EventHandler
@@ -99,7 +127,8 @@ public class PlayerListener implements Listener {
         Player player = event.getPlayer();
 
         if (plugin.getSessionManager().isInSession(player)) {
-            plugin.getSessionManager().endSession(player);
+            PracticeSession session = plugin.getSessionManager().getSession(player);
+            session.endWithFailure();
         }
     }
 }
